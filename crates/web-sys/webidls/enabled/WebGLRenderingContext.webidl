@@ -107,12 +107,8 @@ interface WebGLShaderPrecisionFormat {
 typedef (Float32Array or sequence<GLfloat>) Float32List;
 typedef (Int32Array or sequence<GLint>) Int32List;
 
-// Shared interface for the things that WebGLRenderingContext and
-// WebGL2RenderingContext have in common.  This doesn't have all the things they
-// have in common, because we don't support splitting multiple overloads of the
-// same method across separate interfaces and pulling them in with "implements".
 [Exposed=(Window, Worker), NoInterfaceObject]
-interface WebGLRenderingContextBase {
+interface WebGLRenderingContext {
     /* ClearBufferMask */
     const GLenum DEPTH_BUFFER_BIT               = 0x00000100;
     const GLenum STENCIL_BUFFER_BIT             = 0x00000400;
@@ -709,11 +705,7 @@ interface WebGLRenderingContextBase {
                              GLboolean normalized, GLsizei stride, GLintptr offset);
 
     void viewport(GLint x, GLint y, GLsizei width, GLsizei height);
-};
 
-[Exposed=(Window,Worker),
- Func="mozilla::dom::OffscreenCanvas::PrefEnabledOnWorkerThread"]
-interface WebGLRenderingContext {
     // bufferData has WebGL2 overloads.
     void bufferData(GLenum target, GLsizeiptr size, GLenum usage);
     void bufferData(GLenum target, ArrayBuffer? data, GLenum usage);
@@ -937,11 +929,13 @@ interface EXT_frag_depth
 {
 };
 
+/*
 [NoInterfaceObject]
 interface WEBGL_lose_context {
     void loseContext();
     void restoreContext();
 };
+*/
 
 [NoInterfaceObject]
 interface EXT_texture_filter_anisotropic
