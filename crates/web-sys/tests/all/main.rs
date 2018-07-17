@@ -3,6 +3,7 @@ use project_builder::{project, Project};
 
 mod event;
 mod response;
+mod webgl_rendering_context;
 
 fn websys_project() -> Project {
     project()

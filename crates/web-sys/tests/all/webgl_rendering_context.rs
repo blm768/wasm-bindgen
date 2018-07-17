@@ -11,8 +11,10 @@ fn webgl_rendering_context() {
                 use wasm_bindgen::prelude::*;
                 extern crate web_sys;
 
+                use web_sys::WebGLRenderingContext;
+
                 #[wasm_bindgen]
-                pub fn test_webgl_rendering_context(context: WebGLRenderingContext) {
+                pub fn test_webgl_rendering_context(_context: WebGLRenderingContext) {
                 }
             "#,
         )
@@ -23,9 +25,10 @@ fn webgl_rendering_context() {
                 import * as wasm from "./out";
 
                 export function test() {
-                    let canvas = document.body.createElement("canvas");
-                    let context = canvas.context("webgl");
-                    wasm.test_content(context);
+                    let canvas = document.createElement("canvas");
+                    document.body.appendChild(canvas);
+                    let context = canvas.getContext("webgl");
+                    wasm.test_webgl_rendering_context(context);
                 }
             "#,
         )
