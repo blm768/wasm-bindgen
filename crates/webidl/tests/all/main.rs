@@ -6,3 +6,4 @@ mod enums;
 mod simple;
 mod throws;
 mod array;
+mod typedef;
