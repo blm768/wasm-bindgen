@@ -226,7 +226,7 @@ impl ImportedTypes for ast::TypeAlias {
     where
         F: FnMut(&Ident, ImportedTypeKind),
     {
-        f(&self.dest, ImportedTypeKind::Reference);
+        self.src.imported_types(f);
     }
 }
 
