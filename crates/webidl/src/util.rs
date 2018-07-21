@@ -1,6 +1,8 @@
 use std::iter::{self, FromIterator};
 
 use backend;
+use backend::datatype;
+use backend::datatype::{IntegerSize, TypeKind};
 use backend::util::{ident_ty, leading_colon_path_ty, raw_ident, rust_ident, simple_path_ty};
 use heck::{CamelCase, SnakeCase};
 use proc_macro2::Ident;
@@ -9,15 +11,6 @@ use webidl;
 use webidl::ast::ExtendedAttribute;
 
 use first_pass::FirstPassRecord;
-
-fn shared_ref(ty: syn::Type) -> syn::Type {
-    syn::TypeReference {
-        and_token: Default::default(),
-        lifetime: None,
-        mutability: None,
-        elem: Box::new(ty),
-    }.into()
-}
 
 pub fn webidl_const_ty_to_syn_ty(ty: &webidl::ast::ConstType) -> syn::Type {
     use webidl::ast::ConstType::*;
@@ -89,37 +82,8 @@ fn result_ty(t: syn::Type) -> syn::Type {
     ty.into()
 }
 
-fn slice_ty(t: syn::Type) -> syn::Type {
-    syn::TypeSlice {
-        bracket_token: Default::default(),
-        elem: Box::new(t),
-    }.into()
-}
-
-fn vec_ty(t: syn::Type) -> syn::Type {
-    let arguments = syn::PathArguments::AngleBracketed(syn::AngleBracketedGenericArguments {
-        colon2_token: None,
-        lt_token: Default::default(),
-        args: FromIterator::from_iter(vec![
-            syn::GenericArgument::Type(t),
-        ]),
-        gt_token: Default::default(),
-    });
-
-    let ident = raw_ident("Vec");
-    let seg = syn::PathSegment { ident, arguments };
-    let path: syn::Path = seg.into();
-    let ty = syn::TypePath { qself: None, path };
-    ty.into()
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum TypePosition {
-    Argument,
-    Return,
-}
-
 impl<'a> FirstPassRecord<'a> {
+    // TODO: remove this.
     pub fn webidl_ty_to_syn_ty(
         &self,
         ty: &webidl::ast::Type,
@@ -141,7 +105,7 @@ impl<'a> FirstPassRecord<'a> {
                 let ty = ident_ty(rust_ident(id.to_camel_case().as_str()));
                 if self.interfaces.contains(id) {
                     if pos == TypePosition::Argument {
-                        shared_ref(ty)
+                        datatype::shared_ref(ty)
                     } else {
                         ty
                     }
@@ -174,18 +138,109 @@ impl<'a> FirstPassRecord<'a> {
 
             // `DOMString -> `&str` for arguments
             webidl::ast::TypeKind::DOMString if pos == TypePosition::Argument => {
-                shared_ref(ident_ty(raw_ident("str")))
+                datatype::shared_ref(ident_ty(raw_ident("str")))
             }
             // `DOMString` is not supported yet in other positions.
             webidl::ast::TypeKind::DOMString => return None,
 
             // `ByteString -> `&[u8]` for arguments
             webidl::ast::TypeKind::ByteString if pos == TypePosition::Argument => {
-                shared_ref(slice_ty(ident_ty(raw_ident("u8"))))
+                datatype::shared_ref(datatype::slice_ty(ident_ty(raw_ident("u8"))))
             }
             // ... and `Vec<u8>` for arguments
             webidl::ast::TypeKind::ByteString => {
                 vec_ty(ident_ty(raw_ident("u8")))
+            }
+
+            // Support for these types is not yet implemented, so skip
+            // generating any bindings for this function.
+            webidl::ast::TypeKind::ArrayBuffer
+            | webidl::ast::TypeKind::DataView
+            | webidl::ast::TypeKind::Error
+            | webidl::ast::TypeKind::Float32Array
+            | webidl::ast::TypeKind::Float64Array
+            | webidl::ast::TypeKind::FrozenArray(_)
+            | webidl::ast::TypeKind::Int16Array
+            | webidl::ast::TypeKind::Int32Array
+            | webidl::ast::TypeKind::Int8Array
+            | webidl::ast::TypeKind::Object
+            | webidl::ast::TypeKind::Promise(_)
+            | webidl::ast::TypeKind::Record(..)
+            | webidl::ast::TypeKind::Sequence(_)
+            | webidl::ast::TypeKind::Symbol
+            | webidl::ast::TypeKind::USVString
+            | webidl::ast::TypeKind::Uint16Array
+            | webidl::ast::TypeKind::Uint32Array
+            | webidl::ast::TypeKind::Uint8Array
+            | webidl::ast::TypeKind::Uint8ClampedArray
+            | webidl::ast::TypeKind::Union(_) => {
+                return None;
+            }
+        })
+    }
+
+    pub fn webidl_ty_to_backend_ty(
+        &self,
+        ty: &webidl::ast::Type,
+        pos: TypePosition,
+    ) -> Option<TypeKind> {
+        // nullable types are not yet supported (see issue #14)
+        if ty.nullable {
+            return None;
+        }
+        Some(match ty.kind {
+            // `any` becomes `::wasm_bindgen::JsValue`.
+            webidl::ast::TypeKind::Any => {
+                TypeKind::JsValue
+            }
+
+            // A reference to a type by name becomes the same thing in the
+            // bindings.
+            webidl::ast::TypeKind::Identifier(ref id) => {
+                let ty = id.to_camel_case();
+                if self.interfaces.contains(id) {
+                    TypeKind::Interface(ty)
+                } else if self.dictionaries.contains(id) {
+                    TypeKind::Dictionary(ty)
+                } else if self.enums.contains(id) {
+                    TypeKind::Enum(ty)
+                } else {
+                    warn!("unrecognized type {}", id);
+                    TypeKind::Interface(ty)
+                }
+            }
+
+            // Scalars.
+            webidl::ast::TypeKind::Boolean => TypeKind::Bool,
+            webidl::ast::TypeKind::Byte => TypeKind::Integral{signed: true, size: IntegerSize::I8},
+            webidl::ast::TypeKind::Octet => TypeKind::Integral{signed: false, size: IntegerSize::I8},
+            webidl::ast::TypeKind::RestrictedDouble | webidl::ast::TypeKind::UnrestrictedDouble => {
+                ident_ty(raw_ident("f64"))
+            }
+            webidl::ast::TypeKind::RestrictedFloat | webidl::ast::TypeKind::UnrestrictedFloat => {
+                ident_ty(raw_ident("f32"))
+            }
+            webidl::ast::TypeKind::SignedLong => ident_ty(raw_ident("i32")),
+            webidl::ast::TypeKind::SignedLongLong => ident_ty(raw_ident("i64")),
+            webidl::ast::TypeKind::SignedShort => ident_ty(raw_ident("i16")),
+            webidl::ast::TypeKind::UnsignedLong => ident_ty(raw_ident("u32")),
+            webidl::ast::TypeKind::UnsignedLongLong => ident_ty(raw_ident("u64")),
+            webidl::ast::TypeKind::UnsignedShort => ident_ty(raw_ident("u16")),
+
+            // `DOMString -> `&str` for arguments
+            webidl::ast::TypeKind::DOMString if pos == TypePosition::Argument => {
+                TypeKind::Str
+            }
+            // `DOMString` is not supported yet in other positions.
+            webidl::ast::TypeKind::DOMString => return None,
+
+            // `ByteString -> `&[u8]` for arguments
+            webidl::ast::TypeKind::ByteString if pos == TypePosition::Argument => {
+                datatype::shared_ref(slice_ty(ident_ty(raw_ident("u8"))))
+            }
+            // ... and `Vec<u8>` for arguments
+            webidl::ast::TypeKind::ByteString => {
+                datatype::vec_ty(ident_ty(raw_ident("u8")))
             }
 
             // Support for these types is not yet implemented, so skip

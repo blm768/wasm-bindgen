@@ -502,7 +502,7 @@ fn function_from_decl(
     attrs: Vec<syn::Attribute>,
     vis: syn::Visibility,
     allow_self: bool,
-) -> (ast::Function, Option<ast::MethodSelf>) {
+) -> (ast::Function, Option<ast::RefType>) {
     if decl.variadic.is_some() {
         panic!("can't bindgen variadic functions")
     }
@@ -521,15 +521,15 @@ fn function_from_decl(
             syn::FnArg::Captured(c) => Some(c),
             syn::FnArg::SelfValue(_) => {
                 assert!(method_self.is_none());
-                method_self = Some(ast::MethodSelf::ByValue);
+                method_self = Some(ast::RefType::ByValue);
                 None
             }
             syn::FnArg::SelfRef(ref a) if allow_self => {
                 assert!(method_self.is_none());
                 if a.mutability.is_some() {
-                    method_self = Some(ast::MethodSelf::RefMutable);
+                    method_self = Some(ast::RefType::RefMutable);
                 } else {
-                    method_self = Some(ast::MethodSelf::RefShared);
+                    method_self = Some(ast::RefType::RefShared);
                 }
                 None
             }

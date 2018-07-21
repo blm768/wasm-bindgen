@@ -1,6 +1,5 @@
 use ast;
-use proc_macro2::Ident;
-use syn;
+use datatype::TypeKind;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ImportedTypeKind {
@@ -14,14 +13,14 @@ pub enum ImportedTypeKind {
 pub trait ImportedTypes {
     fn imported_types<F>(&self, f: &mut F)
     where
-        F: FnMut(&Ident, ImportedTypeKind);
+        F: FnMut(&TypeKind, ImportedTypeKind);
 }
 
 /// Iterate over definitions of imported types in the AST.
 pub trait ImportedTypeDefinitions {
     fn imported_type_definitions<F>(&self, f: &mut F)
     where
-        F: FnMut(&Ident);
+        F: FnMut(&TypeKind);
 }
 
 impl<T> ImportedTypeDefinitions for T
@@ -30,34 +29,34 @@ where
 {
     fn imported_type_definitions<F>(&self, f: &mut F)
     where
-        F: FnMut(&Ident),
+        F: FnMut(&TypeKind),
     {
-        self.imported_types(&mut |id, kind| {
+        self.imported_types(&mut |ty, kind| {
             if let ImportedTypeKind::Definition = kind {
-                f(id);
+                f(ty);
             }
         });
     }
 }
 
 /// Iterate over references to imported types in the AST.
-pub trait ImportedTypeReferences {
+pub trait TypeKinderences {
     fn imported_type_references<F>(&self, f: &mut F)
     where
-        F: FnMut(&Ident);
+        F: FnMut(&TypeKind);
 }
 
-impl<T> ImportedTypeReferences for T
+impl<T> TypeKinderences for T
 where
     T: ImportedTypes,
 {
     fn imported_type_references<F>(&self, f: &mut F)
     where
-        F: FnMut(&Ident),
+        F: FnMut(&TypeKind),
     {
-        self.imported_types(&mut |id, kind| {
+        self.imported_types(&mut |ty, kind| {
             if let ImportedTypeKind::Reference = kind {
-                f(id);
+                f(ty);
             }
         });
     }
@@ -66,7 +65,7 @@ where
 impl ImportedTypes for ast::Program {
     fn imported_types<F>(&self, f: &mut F)
     where
-        F: FnMut(&Ident, ImportedTypeKind),
+        F: FnMut(&TypeKind, ImportedTypeKind),
     {
         self.imports.imported_types(f);
         self.type_aliases.imported_types(f);
@@ -80,7 +79,7 @@ where
 {
     fn imported_types<F>(&self, f: &mut F)
     where
-        F: FnMut(&Ident, ImportedTypeKind),
+        F: FnMut(&TypeKind, ImportedTypeKind),
     {
         for x in self {
             x.imported_types(f);
@@ -91,7 +90,7 @@ where
 impl ImportedTypes for ast::Import {
     fn imported_types<F>(&self, f: &mut F)
     where
-        F: FnMut(&Ident, ImportedTypeKind),
+        F: FnMut(&TypeKind, ImportedTypeKind),
     {
         self.kind.imported_types(f)
     }
@@ -100,7 +99,7 @@ impl ImportedTypes for ast::Import {
 impl ImportedTypes for ast::ImportKind {
     fn imported_types<F>(&self, f: &mut F)
     where
-        F: FnMut(&Ident, ImportedTypeKind),
+        F: FnMut(&TypeKind, ImportedTypeKind),
     {
         match self {
             ast::ImportKind::Static(s) => s.imported_types(f),
@@ -114,56 +113,16 @@ impl ImportedTypes for ast::ImportKind {
 impl ImportedTypes for ast::ImportStatic {
     fn imported_types<F>(&self, f: &mut F)
     where
-        F: FnMut(&Ident, ImportedTypeKind),
+        F: FnMut(&TypeKind, ImportedTypeKind),
     {
-        self.ty.imported_types(f);
-    }
-}
-
-impl ImportedTypes for syn::Type {
-    fn imported_types<F>(&self, f: &mut F)
-    where
-        F: FnMut(&Ident, ImportedTypeKind),
-    {
-        match self {
-            syn::Type::Reference(ref r) => r.imported_types(f),
-            syn::Type::Path(ref p) => p.imported_types(f),
-            _ => {}
-        }
-    }
-}
-
-impl ImportedTypes for syn::TypeReference {
-    fn imported_types<F>(&self, f: &mut F)
-    where
-        F: FnMut(&Ident, ImportedTypeKind),
-    {
-        self.elem.imported_types(f);
-    }
-}
-
-impl ImportedTypes for syn::TypePath {
-    fn imported_types<F>(&self, f: &mut F)
-    where
-        F: FnMut(&Ident, ImportedTypeKind),
-    {
-        if self.qself.is_some()
-            || self.path.leading_colon.is_some()
-            || self.path.segments.len() != 1
-        {
-            return;
-        }
-        f(
-            &self.path.segments.last().unwrap().value().ident,
-            ImportedTypeKind::Reference,
-        );
+        f(&self.ty, ImportedTypeKind::Reference)
     }
 }
 
 impl ImportedTypes for ast::ImportFunction {
     fn imported_types<F>(&self, f: &mut F)
     where
-        F: FnMut(&Ident, ImportedTypeKind),
+        F: FnMut(&TypeKind, ImportedTypeKind),
     {
         self.function.imported_types(f);
         self.kind.imported_types(f);
@@ -173,10 +132,10 @@ impl ImportedTypes for ast::ImportFunction {
 impl ImportedTypes for ast::ImportFunctionKind {
     fn imported_types<F>(&self, f: &mut F)
     where
-        F: FnMut(&Ident, ImportedTypeKind),
+        F: FnMut(&TypeKind, ImportedTypeKind),
     {
         match self {
-            ast::ImportFunctionKind::Method { ty, .. } => ty.imported_types(f),
+            ast::ImportFunctionKind::Method { ty, .. } => f(ty, ImportedTypeKind::Reference),
             ast::ImportFunctionKind::Normal => {}
         }
     }
@@ -185,57 +144,57 @@ impl ImportedTypes for ast::ImportFunctionKind {
 impl ImportedTypes for ast::Function {
     fn imported_types<F>(&self, f: &mut F)
     where
-        F: FnMut(&Ident, ImportedTypeKind),
+        F: FnMut(&TypeKind, ImportedTypeKind),
     {
         self.arguments.imported_types(f);
         if let Some(ref r) = self.ret {
-            r.imported_types(f);
+            f(r, ImportedTypeKind::Reference)
         }
     }
 }
 
-impl ImportedTypes for syn::ArgCaptured {
+impl ImportedTypes for ast::ArgCaptured {
     fn imported_types<F>(&self, f: &mut F)
     where
-        F: FnMut(&Ident, ImportedTypeKind),
+        F: FnMut(&TypeKind, ImportedTypeKind),
     {
-        self.ty.imported_types(f);
+        f(&self.ty, ImportedTypeKind::Reference)
     }
 }
 
 impl ImportedTypes for ast::ImportType {
     fn imported_types<F>(&self, f: &mut F)
     where
-        F: FnMut(&Ident, ImportedTypeKind),
+        F: FnMut(&TypeKind, ImportedTypeKind),
     {
-        f(&self.name, ImportedTypeKind::Definition);
+        f(&TypeKind::Interface(self.name.to_string()), ImportedTypeKind::Definition);
     }
 }
 
 impl ImportedTypes for ast::ImportEnum {
     fn imported_types<F>(&self, f: &mut F)
     where
-        F: FnMut(&Ident, ImportedTypeKind),
+        F: FnMut(&TypeKind, ImportedTypeKind),
     {
-        f(&self.name, ImportedTypeKind::Definition);
+        f(&TypeKind::Enum(self.name.to_string()), ImportedTypeKind::Definition);
     }
 }
 
 impl ImportedTypes for ast::TypeAlias {
     fn imported_types<F>(&self, f: &mut F)
     where
-        F: FnMut(&Ident, ImportedTypeKind),
+        F: FnMut(&TypeKind, ImportedTypeKind),
     {
-        f(&self.dest, ImportedTypeKind::Reference);
+        f(&self.src, ImportedTypeKind::Reference);
     }
 }
 
 impl ImportedTypes for ast::Const {
     fn imported_types<F>(&self, f: &mut F)
     where
-        F: FnMut(&Ident, ImportedTypeKind),
+        F: FnMut(&TypeKind, ImportedTypeKind),
     {
-        self.ty.imported_types(f);
+        f(&self.ty, ImportedTypeKind::Reference)
     }
 }
 
@@ -244,13 +203,13 @@ impl ImportedTypes for ast::Const {
 pub trait RemoveUndefinedImports {
     fn remove_undefined_imports<F>(&mut self, is_defined: &F)
     where
-        F: Fn(&Ident) -> bool;
+        F: Fn(&TypeKind) -> bool;
 }
 
 impl RemoveUndefinedImports for ast::Program {
     fn remove_undefined_imports<F>(&mut self, is_defined: &F)
     where
-        F: Fn(&Ident) -> bool,
+        F: Fn(&TypeKind) -> bool,
     {
         self.imports.remove_undefined_imports(is_defined);
         self.type_aliases.remove_undefined_imports(is_defined);
@@ -260,18 +219,18 @@ impl RemoveUndefinedImports for ast::Program {
 
 impl<T> RemoveUndefinedImports for Vec<T>
 where
-    T: ImportedTypeReferences,
+    T: TypeKinderences,
 {
     fn remove_undefined_imports<F>(&mut self, is_defined: &F)
     where
-        F: Fn(&Ident) -> bool,
+        F: Fn(&TypeKind) -> bool,
     {
         self.retain(|x| {
             let mut all_defined = true;
             x.imported_type_references(&mut |id| {
                 if all_defined {
                     if !is_defined(id) {
-                        info!("removing due to {} not being defined", id);
+                        info!("removing due to {:?} not being defined", id);
                         all_defined = false;
                     }
                 }

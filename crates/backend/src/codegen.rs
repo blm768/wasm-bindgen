@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
 
 use ast;
+use datatype::TypeKind;
 use proc_macro2::{Ident, Literal, Span, TokenStream};
 use quote::ToTokens;
 use serde_json;
@@ -298,7 +299,7 @@ impl ToTokens for ast::Export {
 
         let name = &self.function.name;
         let receiver = match self.method_self {
-            Some(ast::MethodSelf::ByValue) => {
+            Some(ast::RefType::ByValue) => {
                 let class = self.class.as_ref().unwrap();
                 arg_conversions.push(quote! {
                     let me = unsafe {
@@ -310,7 +311,7 @@ impl ToTokens for ast::Export {
                 });
                 quote! { me.#name }
             }
-            Some(ast::MethodSelf::RefMutable) => {
+            Some(ast::RefType::RefMutable) => {
                 let class = self.class.as_ref().unwrap();
                 arg_conversions.push(quote! {
                     let mut me = unsafe {
@@ -324,7 +325,7 @@ impl ToTokens for ast::Export {
                 });
                 quote! { me.#name }
             }
-            Some(ast::MethodSelf::RefShared) => {
+            Some(ast::RefType::RefShared) => {
                 let class = self.class.as_ref().unwrap();
                 arg_conversions.push(quote! {
                     let me = unsafe {
@@ -344,39 +345,35 @@ impl ToTokens for ast::Export {
             },
         };
 
-        for (i, syn::ArgCaptured { ty, .. }) in self.function.arguments.iter().enumerate() {
+        for (i, ast::ArgCaptured { ty, ref_ty, .. }) in self.function.arguments.iter().enumerate() {
             let i = i + offset;
             let ident = Ident::new(&format!("arg{}", i), Span::call_site());
-            match *ty {
-                syn::Type::Reference(syn::TypeReference {
-                    mutability: Some(_),
-                    ref elem,
-                    ..
-                }) => {
+            match ref_ty {
+                ast::RefType::RefMutable => {
                     args.push(quote! {
-                        #ident: <#elem as ::wasm_bindgen::convert::RefMutFromWasmAbi>::Abi
+                        #ident: <#ty ::wasm_bindgen::convert::RefMutFromWasmAbi>::Abi
                     });
                     arg_conversions.push(quote! {
                         let mut #ident = unsafe {
-                            <#elem as ::wasm_bindgen::convert::RefMutFromWasmAbi>
+                            <#ty as ::wasm_bindgen::convert::RefMutFromWasmAbi>
                                 ::ref_mut_from_abi(#ident, &mut __stack)
                         };
                         let #ident = &mut *#ident;
                     });
                 }
-                syn::Type::Reference(syn::TypeReference { ref elem, .. }) => {
+                ast::RefType::RefShared => {
                     args.push(quote! {
-                        #ident: <#elem as ::wasm_bindgen::convert::RefFromWasmAbi>::Abi
+                        #ident: <#ty as ::wasm_bindgen::convert::RefFromWasmAbi>::Abi
                     });
                     arg_conversions.push(quote! {
                         let #ident = unsafe {
-                            <#elem as ::wasm_bindgen::convert::RefFromWasmAbi>
+                            <#ty as ::wasm_bindgen::convert::RefFromWasmAbi>
                                 ::ref_from_abi(#ident, &mut __stack)
                         };
                         let #ident = &*#ident;
                     });
                 }
-                _ => {
+                ast::RefType::ByValue => {
                     args.push(quote! {
                         #ident: <#ty as ::wasm_bindgen::convert::FromWasmAbi>::Abi
                     });
@@ -393,7 +390,6 @@ impl ToTokens for ast::Export {
         let ret_ty;
         let convert_ret;
         match &self.function.ret {
-            Some(syn::Type::Reference(_)) => panic!("can't return a borrowed ref"),
             Some(ty) => {
                 ret_ty = quote! {
                     -> <#ty as ::wasm_bindgen::convert::IntoWasmAbi>::Abi
@@ -682,7 +678,7 @@ impl ToTokens for ast::ImportFunction {
         let mut arguments = Vec::new();
         let ret_ident = Ident::new("_ret", Span::call_site());
 
-        for (i, syn::ArgCaptured { pat, ty, .. }) in self.function.arguments.iter().enumerate() {
+        for (i, ast::ArgCaptured { pat, ty, .. }) in self.function.arguments.iter().enumerate() {
             let name = match pat {
                 syn::Pat::Ident(syn::PatIdent {
                     by_ref: None,
@@ -712,9 +708,6 @@ impl ToTokens for ast::ImportFunction {
         let abi_ret;
         let mut convert_ret;
         match &self.js_ret {
-            Some(syn::Type::Reference(_)) => {
-                panic!("cannot return references in imports yet");
-            }
             Some(ref ty) => {
                 abi_ret = quote! {
                     <#ty as ::wasm_bindgen::convert::FromWasmAbi>::Abi
@@ -985,5 +978,11 @@ impl ToTokens for ast::Const {
         } else {
             declaration.to_tokens(tokens);
         }
+    }
+}
+
+impl ToTokens for TypeKind {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        // TODO: implement.
     }
 }

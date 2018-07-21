@@ -2,6 +2,8 @@ use proc_macro2::{Ident, Span};
 use shared;
 use syn;
 
+use datatype::TypeKind;
+
 #[cfg_attr(feature = "extra-traits", derive(Debug, PartialEq))]
 #[derive(Default)]
 pub struct Program {
@@ -16,14 +18,14 @@ pub struct Program {
 #[cfg_attr(feature = "extra-traits", derive(Debug, PartialEq, Eq))]
 pub struct Export {
     pub class: Option<Ident>,
-    pub method_self: Option<MethodSelf>,
+    pub method_self: Option<RefType>,
     pub constructor: Option<String>,
     pub function: Function,
     pub comments: Vec<String>,
 }
 
 #[cfg_attr(feature = "extra-traits", derive(Debug, PartialEq, Eq))]
-pub enum MethodSelf {
+pub enum RefType {
     ByValue,
     RefMutable,
     RefShared,
@@ -49,7 +51,7 @@ pub enum ImportKind {
 pub struct ImportFunction {
     pub function: Function,
     pub rust_name: Ident,
-    pub js_ret: Option<syn::Type>,
+    pub js_ret: Option<TypeKind>,
     pub catch: bool,
     pub structural: bool,
     pub kind: ImportFunctionKind,
@@ -60,7 +62,7 @@ pub struct ImportFunction {
 pub enum ImportFunctionKind {
     Method {
         class: String,
-        ty: syn::Type,
+        ty: TypeKind,
         kind: MethodKind,
     },
     Normal,
@@ -88,7 +90,7 @@ pub enum OperationKind {
 #[cfg_attr(feature = "extra-traits", derive(Debug, PartialEq, Eq))]
 pub struct ImportStatic {
     pub vis: syn::Visibility,
-    pub ty: syn::Type,
+    pub ty: TypeKind,
     pub shim: Ident,
     pub rust_name: Ident,
     pub js_name: Ident,
@@ -99,6 +101,12 @@ pub struct ImportType {
     pub vis: syn::Visibility,
     pub name: Ident,
     pub attrs: Vec<syn::Attribute>,
+}
+#[cfg_attr(feature = "extra-traits", derive(Debug, PartialEq, Eq))]
+pub struct ArgCaptured {
+    pub pat: syn::Pat,
+    pub ty: TypeKind,
+    pub ref_ty: RefType,
 }
 
 #[cfg_attr(feature = "extra-traits", derive(Debug, PartialEq, Eq))]
@@ -116,8 +124,8 @@ pub struct ImportEnum {
 #[cfg_attr(feature = "extra-traits", derive(Debug, PartialEq, Eq))]
 pub struct Function {
     pub name: Ident,
-    pub arguments: Vec<syn::ArgCaptured>,
-    pub ret: Option<syn::Type>,
+    pub arguments: Vec<ArgCaptured>,
+    pub ret: Option<TypeKind>,
     pub rust_attrs: Vec<syn::Attribute>,
     pub rust_vis: syn::Visibility,
 }
@@ -134,7 +142,7 @@ pub struct StructField {
     pub name: Ident,
     pub struct_name: Ident,
     pub readonly: bool,
-    pub ty: syn::Type,
+    pub ty: TypeKind,
     pub getter: Ident,
     pub setter: Ident,
     pub comments: Vec<String>,
@@ -154,7 +162,7 @@ pub struct Variant {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum TypeKind {
+pub enum RefKind {
     ByRef,
     ByMutRef,
     ByValue,
@@ -172,7 +180,7 @@ pub enum TypeLocation {
 pub struct TypeAlias {
     pub vis: syn::Visibility,
     pub dest: Ident,
-    pub src: syn::Type,
+    pub src: TypeKind,
 }
 
 #[cfg_attr(feature = "extra-traits", derive(Debug, PartialEq))]
@@ -180,7 +188,7 @@ pub struct Const {
     pub vis: syn::Visibility,
     pub name: Ident,
     pub class: Option<Ident>,
-    pub ty: syn::Type,
+    pub ty: TypeKind,
     pub value: ConstValue,
 }
 
@@ -237,7 +245,7 @@ impl Export {
 
     fn shared(&self) -> shared::Export {
         let (method, consumed) = match self.method_self {
-            Some(MethodSelf::ByValue) => (true, true),
+            Some(RefType::ByValue) => (true, true),
             Some(_) => (true, false),
             None => (false, false),
         };
